@@ -159,25 +159,30 @@ class MDDPAmodel(nn.Module):
 
             assert 1 != torch.mean((z1 == z2).float()).item(), "where the randomness at!!"
 
-            z11 = z1.clone()
-            z21 = z2.clone()
+            # z11 = z1.clone()
+            # z21 = z2.clone()
+            z_t = 0.5*(z1+z2).clone()
+            z_t1 = z_t.clone()
+            # if return_latent:
+            #     z_ = (z1.clone(), z2.clone())
+
+            z_t[:, k:].normal_(0, 1)
+            z_t1[:, k:].normal_(0, 1)
+            # z11[:, k:].normal_(0, 1)
+            # z21[:, k:].normal_(0, 1)
+
+            x1 = self.decoder(z_t)
+            x2 = self.decoder(z_t1)
+            # x11 = self.decoder(z11)
+            # x21 = self.decoder(z21)
             if return_latent:
-                z_ = (z1.clone(),  z2.clone())
-
-            z1[:, k:].normal_(0, 1)
-            z2[:, k:].normal_(0, 1)
-            z11[:, k:].normal_(0, 1)
-            z21[:, k:].normal_(0, 1)
-
-            x1 = self.decoder(z1)
-            x2 = self.decoder(z2)
-            x11 = self.decoder(z11)
-            x21 = self.decoder(z21)
-
-            if return_latent:
-                return (x1, x2, x11, x21), z_
+                return (x1, x2), (z1.clone(), z2.clone())
             else:
-                return (x1, x2, x11, x21)
+                return (x1, x2)
+            # if return_latent:
+            #     return (x1, x2, x11, x21), z_
+            # else:
+            #     return (x1, x2, x11, x21)
         else:
             if x is not None and k > 0:
                 z = self.encode(x, in_training=True)

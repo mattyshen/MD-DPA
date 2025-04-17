@@ -313,23 +313,23 @@ class MDDPA(object):
             return_latent = self.distill_latent & (k == self.teacher_dim)
             gen1 = self.model(x=x_batch, k=self.latent_dims[k], c=c_batch, return_latent=return_latent, double=True)
             if return_latent:
-                (gen1, gen2, gen11, gen21), (z1, z2) = gen1
+                (gen1, gen2), (z1, z2) = gen1
             else:
-                gen1, gen2, gen11, gen21 = gen1
+                gen1, gen2 = gen1
 
-            recon_loss, s1, s2 = energy_loss_two_sample(x_batch, gen1, gen11, beta=self.beta, verbose=True)
-            recon_loss1, s11, s21 = energy_loss_two_sample(x_batch, gen2, gen21, beta=self.beta, verbose=True)
+            recon_loss, s1, s2 = energy_loss_two_sample(x_batch, gen1, gen2, beta=self.beta, verbose=True)
+            #recon_loss1, s11, s21 = energy_loss_two_sample(x_batch, gen2, gen21, beta=self.beta, verbose=True)
 
             self.loss_all_k[k] += recon_loss.item()
             self.loss_pred_all_k[k] += s1.item() 
             self.loss_var_all_k[k] += s2.item()
 
-            self.loss_all_k[k] += recon_loss1.item()
-            self.loss_pred_all_k[k] += s11.item() 
-            self.loss_var_all_k[k] += s21.item()
+            # self.loss_all_k[k] += recon_loss1.item()
+            # self.loss_pred_all_k[k] += s11.item() 
+            # self.loss_var_all_k[k] += s21.item()
 
             losses.append(recon_loss)
-            losses.append(recon_loss1)
+            #losses.append(recon_loss1)
         loss = sum(losses)
 
         if self.distill_latent:
