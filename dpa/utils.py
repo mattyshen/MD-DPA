@@ -1,6 +1,7 @@
 import os
 import torch
 import numpy as np
+from torch.utils.data import TensorDataset, DataLoader
 
 def make_folder(path):
     if not os.path.exists(path):
@@ -32,3 +33,24 @@ def check_for_gpu(device):
             print("Warning: You have a CUDA device, so you may consider using GPU for potential acceleration\n by setting device to 'cuda'.\n")
         else:
             print("Running on CPU.\n")
+
+def make_dataloader(x, z, y=None, batch_size=128, shuffle=True, num_workers=0):
+    """Make dataloader.
+
+    Args:
+        x (torch.Tensor): data of predictors.
+        z (torch.Tensor): data of teacher predictors.
+        y (torch.Tensor): data of responses.
+        batch_size (int, optional): batch size. Defaults to 128.
+        shuffle (bool, optional): whether to shuffle data. Defaults to True.
+        num_workers (int, optional): number of workers. Defaults to 0.
+
+    Returns:
+        DataLoader: data loader
+    """
+    if y is None:
+        dataset = TensorDataset(x, z)
+    else:
+        dataset = TensorDataset(x, y, z)
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
+    return dataloader

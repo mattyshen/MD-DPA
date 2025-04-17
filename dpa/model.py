@@ -6,7 +6,7 @@ from engression.models import StoNet, StoLayer
 from engression.data.loader import make_dataloader
 
 
-class DPAmodel(nn.Module):
+class MDDPAmodel(nn.Module):
     def __init__(self, data_dim=2, latent_dim=10, out_dim=None, condition_dim=None,
                  num_layer=3, num_layer_enc=None, hidden_dim=500, noise_dim=None, 
                  dist_enc="deterministic", dist_dec="deterministic", resblock=True,
@@ -154,18 +154,30 @@ class DPAmodel(nn.Module):
         if self.encoder_k:
             x = self.get_k_embedding(k, x)
         if double:
-            z = self.encode(x, in_training=True)
-            z1 = z.clone()
+            z1 = self.encode(x, in_training=True)
+            z2 = self.encode(x, in_training=True)
+
+            assert 1 != torch.mean((z1 == z2).float()).item(), "where the randomness at!!"
+
+            z11 = z1.clone()
+            z21 = z2.clone()
             if return_latent:
-                z_ = z.clone()
-            z[:, k:].normal_(0, 1)
-            x1 = self.decoder(z)
+                z_ = (z1.clone(),  z2.clone())
+
             z1[:, k:].normal_(0, 1)
-            x2 = self.decoder(z1)
+            z2[:, k:].normal_(0, 1)
+            z11[:, k:].normal_(0, 1)
+            z21[:, k:].normal_(0, 1)
+
+            x1 = self.decoder(z1)
+            x2 = self.decoder(z2)
+            x11 = self.decoder(z11)
+            x21 = self.decoder(z21)
+
             if return_latent:
-                return x1, x2, z_
+                return (x1, x2, x11, x21), z_
             else:
-                return x1, x2
+                return (x1, x2, x11, x21)
         else:
             if x is not None and k > 0:
                 z = self.encode(x, in_training=True)

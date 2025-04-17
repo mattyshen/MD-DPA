@@ -8,14 +8,14 @@ import matplotlib.patches as mpatches
 import seaborn as sns
 from torchvision.utils import make_grid, save_image
 from engression.loss_func import energy_loss_two_sample
-from engression.data.loader import make_dataloader
+#from engression.data.loader import make_dataloader
 
-from .model import DPAmodel
+from .model import MDDPAmodel
 from . import utils
 
 
-class DPA(object):
-    """Distributional Principal Autoencoder.
+class MDDPA(object):
+    """Manifold Distillation (MD) Distributional Principal Autoencoder.
 
     Args:
         data_dim (int): data dimension.
@@ -36,7 +36,7 @@ class DPA(object):
         bn_enc (bool, optional): whether to use batch norm in encoder. Defaults to False.
         bn_dec (bool, optional): whether to use batch norm in decoder. Defaults to False.
         encoder_k (bool, optional): whether to include k as an encoder input. Defaults to False.
-        coef_match_latent (int, optional): coefficient of the energy loss on latents. Defaults to 0.
+        coef_distill_latent (int, optional): coefficient of the energy loss on latents with teacher. Defaults to 0.5.
         lr (float, optional): learning rate. Defaults to 1e-4.
         num_epochs (int, optional): number of training epochs. Defaults to 500.
         batch_size (int, optional): batch size. Defaults to None.
@@ -50,8 +50,8 @@ class DPA(object):
     def __init__(self, 
                  data_dim, latent_dims, num_layer=2, num_layer_enc=None, hidden_dim=100, noise_dim=100, 
                  out_dim=None, condition_dim=None, linear=False, lin_dec=True, lin_bias=False,
-                 dist_enc="deterministic", dist_dec="stochastic", resblock=True, out_act=None, 
-                 bn_enc=False, bn_dec=False, encoder_k=False, coef_match_latent=0,
+                 dist_enc="stochastic", dist_dec="stochastic", resblock=True, out_act=None, 
+                 bn_enc=False, bn_dec=False, encoder_k=False, coef_distill_latent=0.5,
                  lr=1e-4, num_epochs=500, batch_size=None, standardize=False, beta=1,
                  device=torch.device("cuda" if torch.cuda.is_available() else "cpu"), 
                  dim1=192, dim2=288, seed=222):
@@ -80,8 +80,8 @@ class DPA(object):
         self.dim2 = dim2
         
         self.encoder_k = encoder_k
-        self.coef_match_latent = coef_match_latent
-        self.match_latent = coef_match_latent > 0
+        self.coef_distill_latent = coef_distill_latent
+        self.distill_latent = coef_distill_latent > 0
         
         self.lr = lr
         self.num_epochs = num_epochs
@@ -113,7 +113,7 @@ class DPA(object):
         torch.manual_seed(seed)
         torch.cuda.manual_seed(seed)
         
-        self.model = DPAmodel(data_dim=data_dim, latent_dim=self.latent_dim, out_dim=self.out_dim, condition_dim=condition_dim,
+        self.model = MDDPAmodel(data_dim=data_dim, latent_dim=self.latent_dim, out_dim=self.out_dim, condition_dim=condition_dim,
                               num_layer=num_layer, num_layer_enc=num_layer_enc, hidden_dim=hidden_dim, noise_dim=noise_dim, 
                               dist_enc=dist_enc, dist_dec=dist_dec, resblock=resblock, encoder_k=encoder_k,
                               bn_enc=bn_enc, bn_dec=bn_dec, out_act=out_act, 
@@ -150,7 +150,7 @@ class DPA(object):
         else:
             return x
                 
-    def train(self, x, x_te=None, c=None, c_te=None, num_epochs=None, num_pro_epoch=0, batch_size=None, 
+    def train(self, x, z, c=None, x_te=None, z_te=None, c_te=None, num_epochs=None, num_pro_epoch=0, batch_size=None, 
               print_every_nepoch=100, print_all_k=True, 
               standardize=None, univar=False, lr=None,
               save_model_every=None, save_recon_every=0, n_recon=5, recon_color=True, save_dir="", save_loss=False,
@@ -159,8 +159,10 @@ class DPA(object):
 
         Args:
             x (torch.Tensor or DataLoader): training data.
-            x_te (torch.Tensor, optional): test data. Defaults to None.
+            z (torch.Tensor or DataLoader, optional): training teacher data.
             c (torch.Tensor or DataLoader, optional): training conditioning variable. Defaults to None.
+            x_te (torch.Tensor, optional): test data. Defaults to None.
+            z_te (torch.Tensor, optional): test teacher data. Defaults to None.
             c_te (torch.Tensor, optional): test conditioning variable. Defaults to None.
             num_epochs (int, optional): number of epochs. Defaults to None.
             num_pro_epoch (int, optional): number of progressive epochs. Defaults to 0.
@@ -178,6 +180,8 @@ class DPA(object):
             save_loss (bool, optional): whether to save loss or not. Defaults to False.
             resume_epoch (int, optional): resume epoch. Defaults to None.
         """
+        if z is not None:
+            self.teacher_dim = z.shape[1]
         ## resume from checkpoints
         if resume_epoch is not None:
             print(f"Resume training from epoch {resume_epoch}")
@@ -250,7 +254,7 @@ class DPA(object):
             # assert torch.is_tensor(x)
             # todo
         else:
-            train_loader = make_dataloader(x, c, batch_size=batch_size, shuffle=True)
+            train_loader = utils.make_dataloader(x, z, c, batch_size=batch_size, shuffle=True)
             print(f"Start training with {len(train_loader)} batches each of size {batch_size}.\n")
             if self.condition_dim is not None:
                 c = utils.onehot2num(c)
@@ -260,15 +264,18 @@ class DPA(object):
                 self.loss_var_all_k = np.zeros(self.num_levels)
                 for batch_idx, x_batch in enumerate(train_loader):
                     if c is None:
+                        z_batch = x_batch[1]
                         x_batch = x_batch[0]
                         c_batch = None
                     else:
-                        x_batch, c_batch = x_batch
+                        x_batch, z_batch, c_batch = x_batch
                         c_batch = c_batch.to(self.device)
+
+                    z_batch = z_batch.to(self.device)
                     x_batch = x_batch.to(self.device)
                     
                     k_max = min(int((epoch_idx + 1) // num_pro_epoch), self.num_levels - 1)
-                    self.train_one_iter(x_batch, c_batch, k_max)
+                    self.train_one_iter(x_batch, z_batch, c_batch, k_max)
                     
                     if (epoch_idx == 0 or (epoch_idx + 1) % print_every_nepoch == 0):
                         if batch_idx + 1 == (len(train_loader) - 1):
@@ -299,37 +306,37 @@ class DPA(object):
         #         self.loss_pred_all_k[k] = s1.item()
         #         self.loss_var_all_k[k] = s2.item()
         
-    def train_one_iter(self, x_batch, c_batch, k_max):
-                
+    def train_one_iter(self, x_batch, z_batch, c_batch, k_max):
         self.model.zero_grad()
         losses = []
         for k in range(k_max + 1):
-            return_latent = self.match_latent & (k == k_max)
+            return_latent = self.distill_latent & (k == self.teacher_dim)
             gen1 = self.model(x=x_batch, k=self.latent_dims[k], c=c_batch, return_latent=return_latent, double=True)
             if return_latent:
-                gen1, gen2, z = gen1
+                (gen1, gen2, gen11, gen21), (z1, z2) = gen1
             else:
-                gen1, gen2 = gen1
-            loss, s1, s2 = energy_loss_two_sample(x_batch, gen1, gen2, beta=self.beta, verbose=True)
-            self.loss_all_k[k] += loss.item()
-            self.loss_pred_all_k[k] += s1.item()
+                gen1, gen2, gen11, gen21 = gen1
+
+            recon_loss, s1, s2 = energy_loss_two_sample(x_batch, gen1, gen11, beta=self.beta, verbose=True)
+            recon_loss1, s11, s21 = energy_loss_two_sample(x_batch, gen2, gen21, beta=self.beta, verbose=True)
+
+            self.loss_all_k[k] += recon_loss.item()
+            self.loss_pred_all_k[k] += s1.item() 
             self.loss_var_all_k[k] += s2.item()
-            losses.append(loss)
+
+            self.loss_all_k[k] += recon_loss1.item()
+            self.loss_pred_all_k[k] += s11.item() 
+            self.loss_var_all_k[k] += s21.item()
+
+            losses.append(recon_loss)
+            losses.append(recon_loss1)
         loss = sum(losses)
-        if self.match_latent:
-            z_gauss = torch.randn((gen1.size(0), self.latent_dim), device=self.device)
-            indices = np.random.permutation(gen1.size(0))
-            idx1 = indices[:(gen1.size(0) // 2)]
-            idx2 = indices[(gen1.size(0) // 2):]
-            z1 = z[idx1, :]
-            z2 = z[idx2, :]
-            z_gauss1, z_gauss2 = z_gauss.chunk(2, dim=0)
-            if z1.size(0) != z2.size(0):
-                z2 = z2[:-1]
-                z_gauss1 = z_gauss1[:-1]
-            loss_z, s1_z, s2_z = energy_loss_two_sample(z_gauss1, z1, z2, z_gauss2, verbose=True)
+
+        if self.distill_latent:
+            distill_loss, s1_z, s2_z = energy_loss_two_sample(z_batch, z1[:, :self.teacher_dim], z2[:, :self.teacher_dim], beta=self.beta, verbose=True)
             # loss_z = z.mean(dim=1).pow(2).mean() + z.var(dim=1, correction=0).mean()
-            loss = loss + loss_z * self.coef_match_latent
+            #TODO: keep track of distillation energy + misc loss
+            loss = loss + distill_loss * self.coef_distill_latent
                 
         loss.backward()
         self.optimizer.step()

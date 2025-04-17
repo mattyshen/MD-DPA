@@ -2,3 +2,9 @@ torch
 numpy
 matplotlib
 engression
+scikit-learn
+pandas
+seaborn
+torchvision
+umap
+umap-learn

@@ -1,6 +1,6 @@
-# Distributional Principal Autoencoder
+# Manifold Distillation with Distributional Principal Autoencoders
 
-Distributional Principal Autoencoder (DPA) is a nonlinear dimension reduction method proposed in the paper "[*Distributional Principal Autoencoders*](https://arxiv.org/abs/2404.13649)" by Xinwei Shen and Nicolai Meinshausen. This directory contains the Python implementation of DPA.
+Manifold Distillation with a Distributional Principal Autoencoder (DPA) aims to distill learned manifolds from a teacher model (i.e. UMAP), while maintaining reconstruction distributional equivalence.
 
 
 ## Installation

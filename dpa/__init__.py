@@ -1,2 +1,2 @@
-from .dpa_fit import DPA
-from .model import DPAmodel
+from .dpa_fit import MDDPA
+from .model import MDDPAmodel
