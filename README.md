@@ -5,7 +5,7 @@ Manifold Distillation with a Distributional Principal Autoencoder (DPA) aims to 
 
 ## Usage Example
 
-See [this tutorial](https://github.com/xwshen51/DistributionalPrincipalAutoencoder/blob/main/examples/scurve.ipynb) for an example on manifold distillation of a UMAP model using DPA on a S-curve.
+See [this tutorial](https://github.com/mattyshen/MD-DPA/blob/main/examples/scurve.ipynb) for an example on manifold distillation of a UMAP model using DPA on a S-curve.
 
 
 ## Note
