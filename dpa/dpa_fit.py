@@ -59,6 +59,7 @@ class MDDPA(object):
         self.data_dim = data_dim
         if not isinstance(latent_dims, list):
             latent_dims = list(latent_dims)
+        assert np.mean([latent_dims[0] > ld for ld in latent_dims[1:]]) == 1, "largest latent dimension must be the first entry of latent_dims"
         self.latent_dims = latent_dims
         self.latent_dim = latent_dims[0]
         self.num_levels = len(latent_dims)
