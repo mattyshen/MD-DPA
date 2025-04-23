@@ -334,7 +334,7 @@ class MDDPA(object):
         loss = sum(losses)
 
         if self.distill_latent:
-            distill_loss, s1_z, s2_z = energy_loss_two_sample(z_batch, z1[:, :self.teacher_dim], z2[:, :self.teacher_dim], beta=self.beta, verbose=True)
+            distill_loss, s1_z, s2_z = energy_loss_two_sample(z_batch, z1[:, 0:self.teacher_dim], z2[:, 0:self.teacher_dim], beta=self.beta, verbose=True)
             # loss_z = z.mean(dim=1).pow(2).mean() + z.var(dim=1, correction=0).mean()
             #TODO: keep track of distillation energy + misc loss
             loss = loss + distill_loss * self.coef_distill_latent
