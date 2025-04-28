@@ -48,9 +48,9 @@ class MDDPA(object):
         seed (int, optional): random seed for reproduction. Defaults to 222.
     """
     def __init__(self, 
-                 data_dim, latent_dims, num_layer=2, num_layer_enc=None, hidden_dim=100, noise_dim=100, 
+                 data_dim, latent_dims, num_layer=4, num_layer_enc=None, hidden_dim=100, noise_dim=100, 
                  out_dim=None, condition_dim=None, linear=False, lin_dec=True, lin_bias=False,
-                 dist_enc="stochastic", dist_dec="stochastic", resblock=True, out_act=None, 
+                 dist_enc="stochastic", dist_dec="stochastic", sample_type="parallel", resblock=True, out_act=None, 
                  bn_enc=False, bn_dec=False, encoder_k=False, coef_distill_latent=0.5,
                  lr=1e-4, num_epochs=500, batch_size=None, standardize=False, beta=1,
                  device=torch.device("cuda" if torch.cuda.is_available() else "cpu"), 
@@ -74,6 +74,7 @@ class MDDPA(object):
         self.lin_bias = lin_bias
         self.dist_enc = dist_enc
         self.dist_dec = dist_dec
+        self.sample_type = sample_type
         self.bn_enc = bn_enc
         self.bn_dec = bn_dec
         self.out_act = out_act
@@ -117,7 +118,7 @@ class MDDPA(object):
         self.model = MDDPAmodel(data_dim=data_dim, latent_dim=self.latent_dim, out_dim=self.out_dim, condition_dim=condition_dim,
                               num_layer=num_layer, num_layer_enc=num_layer_enc, hidden_dim=hidden_dim, noise_dim=noise_dim, 
                               dist_enc=dist_enc, dist_dec=dist_dec, resblock=resblock, encoder_k=encoder_k,
-                              bn_enc=bn_enc, bn_dec=bn_dec, out_act=out_act, 
+                              bn_enc=bn_enc, bn_dec=bn_dec, out_act=out_act, sample_type=sample_type,
                               linear=linear, lin_dec=lin_dec, lin_bias=lin_bias).to(device)
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
 
@@ -138,18 +139,40 @@ class MDDPA(object):
         self.x_mean = self.x_mean.to(self.device)
         self.x_std = self.x_std.to(self.device)
         return x_standardized
+    
+    def _standardize_teacher_and_record_stats(self, z, univar=False):
+        self.z_mean = torch.mean(z, dim=0)
+        if univar:
+            self.z_std = z.std()
+        else:
+            self.z_std = torch.std(z, dim=0)
+            self.z_std[self.z_std == 0] += 1e-5
+        z_standardized = (z - self.z_mean) / self.z_std
+        self.z_mean = self.z_mean.to(self.device)
+        self.z_std = self.z_std.to(self.device)
+        return z_standardized
         
     def standardize_data(self, x):
         if self.standardize:
             return (x - self.x_mean) / self.x_std
         else:
             return x
+    def standardize_teacher(self, z):
+        if self.standardize:
+            return (z - self.z_mean) / self.z_std
+        else:
+            return z
         
     def unstandardize_data(self, x):
         if self.standardize:
             return x * self.x_std + self.x_mean
         else:
             return x
+    def unstandardize_teacher(self, z):
+        if self.standardize:
+            return z * self.z_std + self.z_mean
+        else:
+            return z
                 
     def train(self, x, z, c=None, x_te=None, z_te=None, c_te=None, num_epochs=None, num_pro_epoch=0, batch_size=None, 
               print_every_nepoch=100, print_all_k=True, 
@@ -213,6 +236,7 @@ class MDDPA(object):
             ## When inputs are torch tensors
             if self.standardize:
                 x = self._standardize_data_and_record_stats(x, univar)
+                z = self._standardize_teacher_and_record_stats(z, univar)
             
             if self.condition_dim is not None:
                 # dummy encode y (todo for dataloader)
@@ -233,6 +257,7 @@ class MDDPA(object):
             x_te = x_te.to(self.device)
             if self.standardize:
                 x_te = self.standardize_data(x_te)
+                z_te = self.standardize_teacher(z_te)
         if save_recon_every > 0:    
             x_eval = x[eval_idx[:n_recon]].to(self.device)
             c_eval = None if self.condition_dim is None else c[eval_idx[:n_recon]].to(self.device)
@@ -400,6 +425,7 @@ class MDDPA(object):
             self.model.eval()
             if self.standardize:
                 x = self.standardize_data(x)
+                z = self.standardize_teacher(z)
             with torch.no_grad():
                 for k in for_k:
                     gen1 = self.model(x, k=k)
@@ -409,6 +435,7 @@ class MDDPA(object):
                         gen1 = self.unstandardize_data(gen1)
                         gen2 = self.unstandardize_data(gen2)
                         x = self.unstandardize_data(x)
+                        z = self.unstandardize_teacher(z)
                     
                     # evaluate the energy score on the original data scale
                     loss, s1, s2 = energy_loss_two_sample(x, gen1, gen2, verbose=True)
@@ -478,6 +505,7 @@ class MDDPA(object):
         if self.standardize:
             x = self.unstandardize_data(x)
             x_recon = self.unstandardize_data(x_recon)
+
         if in_training:
             x_recon = x_recon.view(x_recon.size(0), 1, self.dim1, self.dim2)            
         if return_loss and not in_training:
@@ -518,6 +546,9 @@ class MDDPA(object):
             if self.standardize:
                 x = self.standardize_data(x)
         z = self.model.encode(x, k, mean, gen_sample_size)
+
+        if self.standardize:
+            z = self.unstandardize_teacher(z)
         self.train_mode()
         return z
 

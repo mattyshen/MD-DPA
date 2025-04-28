@@ -11,7 +11,7 @@ class MDDPAmodel(nn.Module):
                  num_layer=3, num_layer_enc=None, hidden_dim=500, noise_dim=None, 
                  dist_enc="deterministic", dist_dec="deterministic", resblock=True,
                  encoder_k=False, bn_enc=False, bn_dec=False, out_act=None, 
-                 linear=False, lin_dec=True, lin_bias=True):
+                 linear=False, lin_dec=True, lin_bias=True, sample_type="parallel"):
         super().__init__()
         self.data_dim = data_dim
         self.latent_dim = latent_dim
@@ -35,6 +35,8 @@ class MDDPAmodel(nn.Module):
         self.linear = linear
         self.lin_dec = lin_dec
         self.encoder_k = encoder_k
+        assert sample_type in ["parallel", "average"], "sample_type must be either 'parallel' or 'average'."
+        self.sample_type = sample_type
         
         if not linear:
             self.encoder = StoNet(data_dim, latent_dim, num_layer_enc, hidden_dim, noise_dim_enc, bn_enc, resblock=resblock)
@@ -157,32 +159,25 @@ class MDDPAmodel(nn.Module):
             z1 = self.encode(x, in_training=True)
             z2 = self.encode(x, in_training=True)
 
-            assert 1 != torch.mean((z1 == z2).float()).item(), "where the randomness at!!"
+            if self.sample_type == "average":
+                z_t = 0.5*(z1+z2).clone()
+                z_t1 = z_t.clone()
+            else: #elif self.sample_type == "parallel":
+                z_t = z1.clone()
+                z_t1 = z2.clone()
 
-            # z11 = z1.clone()
-            # z21 = z2.clone()
-            z_t = 0.5*(z1+z2).clone()
-            z_t1 = z_t.clone()
-            # if return_latent:
-            #     z_ = (z1.clone(), z2.clone())
 
             z_t[:, k:].normal_(0, 1)
             z_t1[:, k:].normal_(0, 1)
-            # z11[:, k:].normal_(0, 1)
-            # z21[:, k:].normal_(0, 1)
 
             x1 = self.decoder(z_t)
             x2 = self.decoder(z_t1)
-            # x11 = self.decoder(z11)
-            # x21 = self.decoder(z21)
+
             if return_latent:
                 return (x1, x2), (z1.clone(), z2.clone())
             else:
                 return (x1, x2)
-            # if return_latent:
-            #     return (x1, x2, x11, x21), z_
-            # else:
-            #     return (x1, x2, x11, x21)
+
         else:
             if x is not None and k > 0:
                 z = self.encode(x, in_training=True)

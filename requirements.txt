@@ -8,3 +8,4 @@ seaborn
 torchvision
 umap
 umap-learn
+PyCytoData
