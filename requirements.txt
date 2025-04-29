@@ -9,3 +9,5 @@ torchvision
 umap
 umap-learn
 PyCytoData
+scanpy
+scikit-misc
